@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>DentCloud Hardware Bridge</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>DentCloud Hardware Bridge</h1>
+      <div id="version"></div>
+    </header>
+
+    <nav>
+      <button class="tab active" data-tab="status">Status</button>
+      <button class="tab" data-tab="settings">Settings</button>
+      <button class="tab" data-tab="xray">Xray</button>
+      <button class="tab" data-tab="log">Event Log</button>
+    </nav>
+
+    <!-- Status Panel -->
+    <section id="status" class="panel active">
+      <h2>Device Status</h2>
+      <div class="status-grid">
+        <div class="status-card">
+          <h3>Card Reader</h3>
+          <div id="card-reader-status" class="status-badge disconnected">Disconnected</div>
+          <div id="card-reader-detail"></div>
+        </div>
+        <div class="status-card">
+          <h3>EDC Terminal</h3>
+          <div id="edc-status" class="status-badge disconnected">Disconnected</div>
+          <div id="edc-detail"></div>
+        </div>
+        <div class="status-card">
+          <h3>Xray Watcher</h3>
+          <div id="xray-status" class="status-badge disconnected">Stopped</div>
+          <div id="xray-detail"></div>
+        </div>
+        <div class="status-card">
+          <h3>WebSocket Server</h3>
+          <div id="ws-status" class="status-badge connected">Running</div>
+          <div id="ws-detail"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Panel -->
+    <section id="settings" class="panel">
+      <h2>Settings</h2>
+      <div class="settings-form">
+        <fieldset>
+          <legend>EDC Terminal</legend>
+          <label>COM Port: <input type="text" id="edc-com" placeholder="COM1"></label>
+          <label>Baud Rate: <select id="edc-baud">
+            <option value="9600" selected>9600</option>
+            <option value="19200">19200</option>
+            <option value="38400">38400</option>
+          </select></label>
+        </fieldset>
+        <fieldset>
+          <legend>Xray Upload</legend>
+          <label>Watch Folder:
+            <input type="text" id="xray-folder" placeholder="Select folder..." readonly>
+            <button id="btn-select-folder">Browse</button>
+          </label>
+          <label>API Base URL: <input type="text" id="xray-api" placeholder="https://api.example.com"></label>
+          <label>Clinic/Branch: <input type="text" id="xray-clinic" placeholder="clinicName/branchName"></label>
+        </fieldset>
+        <fieldset>
+          <legend>WebSocket</legend>
+          <label>Port: <input type="number" id="ws-port" value="9900"></label>
+        </fieldset>
+        <button id="btn-save-settings" class="btn-primary">Save Settings</button>
+      </div>
+    </section>
+
+    <!-- Xray Panel -->
+    <section id="xray" class="panel">
+      <h2>Xray Upload</h2>
+      <div id="drop-zone" class="drop-zone">
+        <p>Drop DICOM, JPG, or PNG files here</p>
+      </div>
+      <div id="queue-stats"></div>
+      <div id="file-list"></div>
+      <div id="assign-panel" style="display:none">
+        <h3>Assign Patient</h3>
+        <input type="text" id="assign-dn" placeholder="Patient DN">
+        <button id="btn-lookup">Lookup</button>
+        <div id="assign-result"></div>
+      </div>
+    </section>
+
+    <!-- Event Log -->
+    <section id="log" class="panel">
+      <h2>Event Log</h2>
+      <div id="event-log" class="log-container"></div>
+    </section>
+  </div>
+  <script src="dashboard.js"></script>
+</body>
+</html>

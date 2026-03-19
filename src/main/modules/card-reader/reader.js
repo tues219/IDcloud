@@ -1,0 +1,82 @@
+const { CommandApdu } = require('smartcard');
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getStatusWord(buffer) {
+  if (!buffer || buffer.length < 2) {
+    return { sw1: 0, sw2: 0, sw: '0000' };
+  }
+  const sw1 = buffer[buffer.length - 2];
+  const sw2 = buffer[buffer.length - 1];
+  const sw = ((sw1 << 8) | sw2).toString(16).padStart(4, '0');
+  return { sw1, sw2, sw };
+}
+
+// NEW: timeout wrapper that was missing in original code
+async function issueCommandWithTimeout(card, cmd, timeoutMs = 5000) {
+  return Promise.race([
+    card.issueCommand(cmd),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('COMMAND_TIMEOUT')), timeoutMs)
+    )
+  ]);
+}
+
+async function getData(card, command, req = [0x00, 0xc0, 0x00, 0x00], options = {}) {
+  const { retries = 3, delayMs = 100, commandTimeout = 5000, onRetry } = options;
+  let lastError;
+
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const selectResponse = await issueCommandWithTimeout(
+        card,
+        new CommandApdu({ bytes: command }),
+        commandTimeout
+      );
+
+      const selectSw = getStatusWord(selectResponse);
+      let expectedLength = command.slice(-1)[0];
+
+      if (selectSw.sw1 === 0x61) {
+        expectedLength = selectSw.sw2;
+      } else if (selectSw.sw1 === 0x6c) {
+        expectedLength = selectSw.sw2;
+      }
+
+      const data = await issueCommandWithTimeout(
+        card,
+        new CommandApdu({ bytes: [...req, expectedLength] }),
+        commandTimeout
+      );
+
+      const dataSw = getStatusWord(data);
+      if (dataSw.sw1 === 0x90 && dataSw.sw2 === 0x00) {
+        return data;
+      }
+      if (dataSw.sw1 === 0x6c) {
+        const corrected = await issueCommandWithTimeout(
+          card,
+          new CommandApdu({ bytes: [...req, dataSw.sw2] }),
+          commandTimeout
+        );
+        return corrected;
+      }
+
+      return data;
+    } catch (err) {
+      lastError = err;
+      if (attempt < retries) {
+        // Exponential backoff: 50ms → 100ms → 200ms
+        const backoffMs = delayMs * Math.pow(2, attempt - 1);
+        if (onRetry) onRetry(attempt, err);
+        await delay(backoffMs);
+      }
+    }
+  }
+
+  throw lastError;
+}
+
+module.exports = { getData, delay, getStatusWord, issueCommandWithTimeout };
