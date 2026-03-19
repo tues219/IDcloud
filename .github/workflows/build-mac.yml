@@ -1,0 +1,54 @@
+name: Build macOS
+
+on:
+  push:
+    branches: [release/mac]
+  pull_request:
+    branches: [release/mac]
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: build-mac
+  cancel-in-progress: true
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build macOS (ARM64 + x64)
+        run: npm run build:mac
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentCloud-Hardware-Bridge-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          retention-days: 30
