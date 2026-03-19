@@ -2,9 +2,9 @@ name: Build Windows x64
 
 on:
   push:
-    branches: [main]
+    branches: [main, release/win-x64]
   pull_request:
-    branches: [main]
+    branches: [main, release/win-x64]
   workflow_dispatch:
     inputs:
       branch:
