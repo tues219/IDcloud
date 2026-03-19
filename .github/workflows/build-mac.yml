@@ -1,10 +1,10 @@
-name: Build Windows x64
+name: Build macOS
 
 on:
   push:
-    branches: [release/win-x64]
+    branches: [release/mac]
   pull_request:
-    branches: [release/win-x64]
+    branches: [release/mac]
   workflow_dispatch:
     inputs:
       branch:
@@ -14,12 +14,12 @@ on:
         type: string
 
 concurrency:
-  group: build-windows
+  group: build-mac
   cancel-in-progress: true
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build-mac:
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -49,16 +49,16 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Build Windows x64
-        run: npm run build:win
+      - name: Build macOS (ARM64 + x64)
+        run: npm run build:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DentCloud-Hardware-Bridge-win-x64
+          name: DentCloud-Hardware-Bridge-mac
           path: |
-            dist/*.exe
-            dist/*.msi
+            dist/*.dmg
+            dist/*.zip
           retention-days: 30
