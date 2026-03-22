@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('bridge', {
   readCard: () => ipcRenderer.invoke('read-card'),
 
   // EDC
+  listSerialPorts: () => ipcRenderer.invoke('list-serial-ports'),
   edcTransaction: (txCode, data) => ipcRenderer.invoke('edc-transaction', txCode, data),
 
   // Xray

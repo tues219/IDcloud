@@ -229,6 +229,11 @@ ipcMain.handle('get-logs', async () => {
     return [];
   }
 });
+ipcMain.handle('list-serial-ports', async () => {
+  const { SerialPort } = require('serialport');
+  return SerialPort.list();
+});
+
 ipcMain.handle('app-version', () => app.getVersion());
 
 ipcMain.handle('get-auto-start', () => {

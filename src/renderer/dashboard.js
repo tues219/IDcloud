@@ -117,12 +117,29 @@ document.getElementById('xray-config-toggle').addEventListener('click', () => {
   header.classList.toggle('open');
 });
 
+// ── Populate COM port dropdown ──
+async function populateComPorts(selectedPort) {
+  const select = document.getElementById('edc-com');
+  const ports = await bridge.listSerialPorts();
+  // Keep only the default placeholder
+  select.innerHTML = '<option value="">Select port...</option>';
+  ports.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.path;
+    opt.textContent = p.path + (p.friendlyName ? ` (${p.friendlyName})` : '');
+    select.appendChild(opt);
+  });
+  if (selectedPort) select.value = selectedPort;
+}
+
 // ── Load Settings ──
 async function loadSettings() {
   const config = await bridge.getConfig();
   if (config.edc) {
-    document.getElementById('edc-com').value = config.edc.comPort || '';
+    await populateComPorts(config.edc.comPort || '');
     document.getElementById('edc-baud').value = config.edc.baudRate || 9600;
+  } else {
+    await populateComPorts('');
   }
   if (config.xray) {
     document.getElementById('xray-folder').value = config.xray.watchFolder || '';
