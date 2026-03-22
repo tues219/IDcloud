@@ -19,6 +19,8 @@ class CardReaderModule extends EventEmitter {
     this._destroyed = false;
     this._reconnectTimer = null;
     this._readGeneration = 0; // incremented on card removal to cancel stale reads
+    this._cardWatchTimer = null;
+    this._insertWatchTimer = null;
   }
 
   async init() {
@@ -33,10 +35,16 @@ class CardReaderModule extends EventEmitter {
       this.status = 'connected';
       this.logger.info('Card reader connected', { device: reader.name });
       this.emit('status', { status: 'connected', device: reader.name });
+
+      // Native PCSC monitor is unreliable — start polling for card insertion
+      if (!this.currentCard && !this.isReading) {
+        this._startInsertionWatcher();
+      }
     });
 
     this.devices.on('card-inserted', async (event) => {
       if (this._destroyed) return;
+      this._stopInsertionWatcher();
       await delay(300);
       if (this._destroyed) return;
 
@@ -65,6 +73,7 @@ class CardReaderModule extends EventEmitter {
     });
 
     this.devices.on('card-removed', () => {
+      this._stopCardWatcher();
       this.logger.info('Card removed');
       this._readGeneration++; // cancel any in-progress read
       this.currentCard = null;
@@ -72,9 +81,12 @@ class CardReaderModule extends EventEmitter {
       this.isReading = false;
       this.status = 'connected';
       this.emit('status', { status: 'connected' });
+      this._startInsertionWatcher();
     });
 
     this.devices.on('reader-detached', () => {
+      this._stopCardWatcher();
+      this._stopInsertionWatcher();
       this.logger.warn('Card reader disconnected');
       this._readGeneration++;
       this.currentDevice = null;
@@ -90,6 +102,8 @@ class CardReaderModule extends EventEmitter {
       const msg = error.message || String(error);
       // Only log once, then stop monitor and reconnect
       if (this.status !== 'error') {
+        this._stopCardWatcher();
+        this._stopInsertionWatcher();
         this.logger.error('Smart card system error', { error: msg });
         this.status = 'error';
         this._readGeneration++;
@@ -130,9 +144,14 @@ class CardReaderModule extends EventEmitter {
 
       this.lastReadData = data;
       this.status = 'read-complete';
+
       this.emit('card-data', data);
       this.emit('status', { status: 'read-complete' });
       this.logger.info('Card read complete');
+
+      // Windows PCSC native monitor may fail to detect card state changes after read.
+      // Poll card.getStatus() to actively detect removal, then reinitialize monitoring.
+      this._startCardWatcher();
     } finally {
       if (gen === this._readGeneration) {
         this.isReading = false;
@@ -155,6 +174,75 @@ class CardReaderModule extends EventEmitter {
     if (gen !== this._readGeneration) throw new Error('CARD_REMOVED');
 
     return { ...personal, nhso };
+  }
+
+  _startCardWatcher() {
+    this._stopCardWatcher();
+
+    const card = this.currentCard;
+    if (!card) return;
+
+    this.logger.debug('Starting active card removal watcher');
+
+    this._cardWatchTimer = setInterval(async () => {
+      if (this._destroyed || !this.currentCard) {
+        this._stopCardWatcher();
+        return;
+      }
+
+      try {
+        card.getStatus();
+      } catch (err) {
+        this.logger.info('Card removal detected by active watcher');
+        this._stopCardWatcher();
+
+        this._readGeneration++;
+        this.currentCard = null;
+        this.lastReadData = null;
+        this.isReading = false;
+        this.status = 'connected';
+        this.emit('status', { status: 'connected' });
+
+        // Native PCSC monitor can't detect insertion either — poll via periodic reinit
+        this._startInsertionWatcher();
+      }
+    }, 1000);
+  }
+
+  _stopCardWatcher() {
+    if (this._cardWatchTimer) {
+      clearInterval(this._cardWatchTimer);
+      this._cardWatchTimer = null;
+    }
+  }
+
+  _startInsertionWatcher() {
+    this._stopInsertionWatcher();
+
+    this.logger.debug('Starting active card insertion watcher');
+
+    this._insertWatchTimer = setInterval(async () => {
+      if (this._destroyed) {
+        this._stopInsertionWatcher();
+        return;
+      }
+
+      // Reinitialize with fresh PCSC context — if a card is present,
+      // the fresh scan will detect it and fire card-inserted
+      this._stopMonitor();
+      try {
+        await this.init();
+      } catch (_) {
+        this._stopMonitor();
+      }
+    }, 1000);
+  }
+
+  _stopInsertionWatcher() {
+    if (this._insertWatchTimer) {
+      clearInterval(this._insertWatchTimer);
+      this._insertWatchTimer = null;
+    }
   }
 
   // Called by WS handler when frontend requests a read
@@ -194,6 +282,7 @@ class CardReaderModule extends EventEmitter {
   }
 
   _stopMonitor() {
+    this._stopCardWatcher();
     if (this.devices) {
       try { this.devices.stop(); } catch (_) {}
       this.devices.removeAllListeners();
@@ -235,6 +324,8 @@ class CardReaderModule extends EventEmitter {
   async destroy() {
     this._destroyed = true;
     this._readGeneration++;
+    this._stopCardWatcher();
+    this._stopInsertionWatcher();
     if (this._reconnectTimer) {
       clearInterval(this._reconnectTimer);
       this._reconnectTimer = null;

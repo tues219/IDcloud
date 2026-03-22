@@ -58,16 +58,17 @@ const STATUS_LABELS = {
 
 function updateStatus(module, status, error) {
   const elId = module === 'cardReader' ? 'card-reader' : module;
-  const el = document.getElementById(`${elId}-status`);
-  if (!el) return;
 
-  // Update the status indicator class
-  el.className = 'status-indicator ' + status;
+  // Update the status dot
+  const dot = document.getElementById(`${elId}-dot`);
+  if (dot) {
+    dot.className = 'svc-dot ' + status;
+  }
 
-  // Update the status text inside the indicator
-  const textEl = el.querySelector('.status-text');
-  if (textEl) {
-    textEl.textContent = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
+  // Update the state text
+  const stateEl = document.getElementById(`${elId}-status`);
+  if (stateEl) {
+    stateEl.textContent = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
   }
 
   const detail = document.getElementById(`${elId}-detail`);

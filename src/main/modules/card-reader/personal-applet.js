@@ -184,28 +184,12 @@ class PersonalApplet {
         apduPerson.CMD_PHOTO19, apduPerson.CMD_PHOTO20,
       ];
       let photo = '';
-      let failedChunks = 0;
       for (let i = 0; i < photoCommands.length; i++) {
         if (isCancelled()) throw new Error('CARD_REMOVED');
-        // Retry each chunk up to 3 times
-        let chunkRead = false;
-        for (let retry = 0; retry < 3 && !chunkRead; retry++) {
-          try {
-            const data = await this.readRawField(photoCommands[i]);
-            photo += data.toString('hex').slice(0, -4);
-            chunkRead = true;
-          } catch (err) {
-            if (retry === 2) {
-              failedChunks++;
-              logger.warn(`Photo chunk ${i + 1} failed after 3 retries`);
-            }
-          }
-        }
+        const data = await this.readRawField(photoCommands[i]);
+        photo += data.toString('hex').slice(0, -4);
       }
       info.photo = photo.length > 0 ? Buffer.from(photo, 'hex').toString('base64') : null;
-      if (failedChunks > 0) {
-        logger.warn(`Photo read completed with ${failedChunks} failed chunks`);
-      }
     } catch (err) {
       if (err.message === 'CARD_REMOVED') throw err;
       info.photo = null;

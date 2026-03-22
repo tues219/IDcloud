@@ -5,7 +5,7 @@
   "main": "src/main/index.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev",
+    "dev": "electronmon . --dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "build:win": "electron-builder --win",
@@ -29,6 +29,7 @@
     "electron": "^41.0.3",
     "electron-builder": "^25.1.8",
     "electron-rebuild": "^3.2.9",
+    "electronmon": "^2.0.4",
     "vitest": "^3.0.0"
   },
   "build": {
