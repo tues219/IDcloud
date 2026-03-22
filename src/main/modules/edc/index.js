@@ -58,7 +58,7 @@ class EdcInterface extends EventEmitter {
             txCode,
             parseFloat(data.amount) || 0,
             parseFloat(data.vatRefund) || 0,
-            data.ref1 || data.receiptNo || '',
+            data.ref1 || '',
             data.ref2 || ''
           );
           break;
