@@ -1,4 +1,3 @@
-const { CommandApdu } = require('smartcard');
 const legacy = require('legacy-encoding');
 const { getData, delay } = require('./reader');
 const apduNhso = require('./apdu-nhso');
@@ -13,6 +12,7 @@ class NhsoApplet {
   async readField(command, decode = null) {
     const maxFieldRetries = 3;
     for (let i = 0; i < maxFieldRetries; i++) {
+      if (this._isCancelled()) throw new Error('CARD_REMOVED');
       try {
         const data = await getData(this.card, command, this.req, this.options);
         await delay(this.options.delayMs);
@@ -21,6 +21,7 @@ class NhsoApplet {
         }
         return data.slice(0, -2).toString().trim();
       } catch (err) {
+        if (err.message === 'CARD_REMOVED') throw err;
         if (i < maxFieldRetries - 1) {
           await delay(this.options.delayMs * 2);
         } else {
@@ -30,42 +31,38 @@ class NhsoApplet {
     }
   }
 
-  async getInfo(logger) {
+  async getInfo(logger, isCancelled = () => false) {
+    this._isCancelled = isCancelled;
+    this.options.isCancelled = isCancelled;
     const info = { _errors: [] };
 
     // Select NHSO applet
-    await this.card.issueCommand(
-      new CommandApdu({
-        bytes: [...apduNhso.SELECT, ...apduNhso.NHSO_CARD],
-      })
-    );
+    await this.card.transmit(Buffer.from([...apduNhso.SELECT, ...apduNhso.NHSO_CARD]));
     await delay(this.options.delayMs);
-
-    logger.info('NHSO applet selected');
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // maininscl
     try {
       info.maininscl = await this.readField(apduNhso.CMD_MAININSCL, 'tis620');
-      logger.info('Read maininscl');
     } catch (err) {
       info.maininscl = null;
       info._errors.push({ field: 'maininscl', error: err.message });
       logger.error('Failed to read maininscl', { error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // subinscl
     try {
       info.subinscl = await this.readField(apduNhso.CMD_SUBINSCL, 'tis620');
-      logger.info('Read subinscl');
     } catch (err) {
       info.subinscl = null;
       info._errors.push({ field: 'subinscl', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // main hospital name
     try {
       info.mainHospitalName = await this.readField(apduNhso.CMD_MAIN_HOSPITAL_NAME, 'tis620');
-      logger.info('Read mainHospitalName');
     } catch (err) {
       info.mainHospitalName = null;
       info._errors.push({ field: 'mainHospitalName', error: err.message });
@@ -86,6 +83,7 @@ class NhsoApplet {
       info.paidType = null;
       info._errors.push({ field: 'paidType', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Issue Date
     try {
@@ -126,7 +124,6 @@ class NhsoApplet {
       logger.warn('NHSO field errors', { errors: info._errors });
     }
 
-    logger.info('NHSO read complete');
     return info;
   }
 }

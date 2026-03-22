@@ -229,6 +229,11 @@ ipcMain.handle('get-logs', async () => {
     return [];
   }
 });
+ipcMain.handle('list-serial-ports', async () => {
+  const { SerialPort } = require('serialport');
+  return SerialPort.list();
+});
+
 ipcMain.handle('app-version', () => app.getVersion());
 
 ipcMain.handle('get-auto-start', () => {
@@ -250,7 +255,18 @@ async function initModules() {
   }
 
   try {
-    const edcConfig = getConfig('edc');
+    let edcConfig = getConfig('edc');
+    if (!edcConfig.comPort) {
+      const { SerialPort } = require('serialport');
+      const ports = await SerialPort.list();
+      const quectel = ports.find(p => p.friendlyName && p.friendlyName.includes('Quectel USB AT Port'));
+      if (quectel) {
+        setConfig('edc', { ...edcConfig, comPort: quectel.path });
+        edcConfig = getConfig('edc');
+        edc.config = edcConfig;
+        logger.info('Auto-detected Quectel USB AT Port', { port: quectel.path });
+      }
+    }
     if (edcConfig.comPort) await edc.init();
   } catch (err) {
     logger.error('EDC init failed (non-fatal)', { error: err.message });
@@ -312,8 +328,8 @@ app.whenReady().then(async () => {
     logger.info('System resuming, reinitializing');
     try { await cardReader.init(); } catch (err) { logger.error('Card reader reinit failed', { error: err.message }); }
     try {
-      const edcConfig = getConfig('edc');
-      if (edcConfig.comPort) await edc.init();
+      edc.config = getConfig('edc');
+      if (edc.config.comPort) await edc.init();
     } catch (err) { logger.error('EDC reinit failed', { error: err.message }); }
   });
 });

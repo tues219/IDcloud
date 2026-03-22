@@ -13,6 +13,7 @@ class PersonalApplet {
   async readField(command, fieldName, decode = null) {
     const maxFieldRetries = 3;
     for (let i = 0; i < maxFieldRetries; i++) {
+      if (this._isCancelled()) throw new Error('CARD_REMOVED');
       try {
         const data = await getData(this.card, command, this.req, this.options);
         await delay(this.options.delayMs);
@@ -21,6 +22,7 @@ class PersonalApplet {
         }
         return data.slice(0, -2).toString().trim();
       } catch (err) {
+        if (err.message === 'CARD_REMOVED') throw err;
         if (i < maxFieldRetries - 1) {
           await delay(this.options.delayMs * 2);
         } else {
@@ -31,30 +33,36 @@ class PersonalApplet {
   }
 
   async readRawField(command) {
+    if (this._isCancelled()) throw new Error('CARD_REMOVED');
     const data = await getData(this.card, command, this.req, this.options);
     await delay(this.options.delayMs);
     return data;
   }
 
-  async getInfo(logger) {
+  async getInfo(logger, isCancelled = () => false) {
+    this._isCancelled = isCancelled;
+    this.options.isCancelled = isCancelled;
     const info = { _errors: [] };
 
     // Select Thai ID applet
-    await this.card.issueCommand([
+    await this.card.transmit(Buffer.from([
       0x00, 0xa4, 0x04, 0x00, 0x08,
       0xa0, 0x00, 0x00, 0x00, 0x54, 0x48, 0x00, 0x01,
-    ]);
+    ]));
     await delay(this.options.delayMs);
+    logger.info('Reading card...');
+
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // CID
     try {
       info.cid = await this.readField(apduPerson.CMD_CID, 'cid');
-      logger.info('Read CID', { cid: info.cid });
     } catch (err) {
       info.cid = null;
       info._errors.push({ field: 'cid', error: err.message });
       logger.error('Failed to read CID', { error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Thai fullname
     try {
@@ -66,12 +74,12 @@ class PersonalApplet {
         middlename: parts[2] || '',
         lastname: parts[3] || '',
       };
-      logger.info('Read Thai name');
     } catch (err) {
       info.name = null;
       info._errors.push({ field: 'name', error: err.message });
       logger.error('Failed to read Thai name', { error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // English fullname
     try {
@@ -83,31 +91,31 @@ class PersonalApplet {
         middlename: parts[2] || '',
         lastname: parts[3] || '',
       };
-      logger.info('Read English name');
     } catch (err) {
       info.nameEN = null;
       info._errors.push({ field: 'nameEn', error: err.message });
       logger.error('Failed to read English name', { error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Date of birth
     try {
       const raw = await this.readField(apduPerson.CMD_BIRTH, 'dob');
       info.dob = `${+raw.slice(0, 4) - 543}-${raw.slice(4, 6)}-${raw.slice(6)}`;
-      logger.info('Read DOB');
     } catch (err) {
       info.dob = null;
       info._errors.push({ field: 'dob', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Gender
     try {
       info.gender = await this.readField(apduPerson.CMD_GENDER, 'gender');
-      logger.info('Read gender');
     } catch (err) {
       info.gender = null;
       info._errors.push({ field: 'gender', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Issuer
     try {
@@ -134,6 +142,7 @@ class PersonalApplet {
       info.expireDate = null;
       info._errors.push({ field: 'expireDate', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Address
     try {
@@ -152,11 +161,11 @@ class PersonalApplet {
           : '',
         province: parts[parts.length - 1] ? parts[parts.length - 1].trim() : '',
       };
-      logger.info('Read address');
     } catch (err) {
       info.address = null;
       info._errors.push({ field: 'address', error: err.message });
     }
+    if (isCancelled()) throw new Error('CARD_REMOVED');
 
     // Photo (20 chunks) - retry per chunk, don't break on single chunk failure
     try {
@@ -170,28 +179,14 @@ class PersonalApplet {
         apduPerson.CMD_PHOTO19, apduPerson.CMD_PHOTO20,
       ];
       let photo = '';
-      let failedChunks = 0;
       for (let i = 0; i < photoCommands.length; i++) {
-        // Retry each chunk up to 3 times
-        let chunkRead = false;
-        for (let retry = 0; retry < 3 && !chunkRead; retry++) {
-          try {
-            const data = await this.readRawField(photoCommands[i]);
-            photo += data.toString('hex').slice(0, -4);
-            chunkRead = true;
-          } catch (err) {
-            if (retry === 2) {
-              failedChunks++;
-              logger.warn(`Photo chunk ${i + 1} failed after 3 retries`);
-            }
-          }
-        }
+        if (isCancelled()) throw new Error('CARD_REMOVED');
+        const data = await this.readRawField(photoCommands[i]);
+        photo += data.toString('hex').slice(0, -4);
       }
       info.photo = photo.length > 0 ? Buffer.from(photo, 'hex').toString('base64') : null;
-      if (failedChunks > 0) {
-        logger.warn(`Photo read completed with ${failedChunks} failed chunks`);
-      }
     } catch (err) {
+      if (err.message === 'CARD_REMOVED') throw err;
       info.photo = null;
       info._errors.push({ field: 'photo', error: err.message });
     }

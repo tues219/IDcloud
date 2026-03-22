@@ -47,22 +47,53 @@ bridge.onQueueUpdate((status) => {
   renderQueue(status);
 });
 
+const STATUS_LABELS = {
+  'connected': 'Connected',
+  'disconnected': 'Disconnected',
+  'card-inserted': 'Card Inserted',
+  'read-complete': 'Read Complete',
+  'processing': 'Processing',
+  'error': 'Error',
+};
+
 function updateStatus(module, status, error) {
   const elId = module === 'cardReader' ? 'card-reader' : module;
-  const el = document.getElementById(`${elId}-status`);
-  if (!el) return;
 
-  // Update the status indicator class
-  el.className = 'status-indicator ' + status;
+  // Update the status dot
+  const dot = document.getElementById(`${elId}-dot`);
+  if (dot) {
+    dot.className = 'svc-dot ' + status;
+  }
 
-  // Update the status text inside the indicator
-  const textEl = el.querySelector('.status-text');
-  if (textEl) {
-    textEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+  // Update the state text
+  const stateEl = document.getElementById(`${elId}-status`);
+  if (stateEl) {
+    stateEl.textContent = STATUS_LABELS[status] || status.charAt(0).toUpperCase() + status.slice(1);
   }
 
   const detail = document.getElementById(`${elId}-detail`);
-  if (detail && error) detail.textContent = error;
+  if (detail) {
+    if (error) {
+      detail.textContent = error;
+    } else if (module !== 'edc') {
+      detail.textContent = '';
+    }
+    // For EDC, preserve port detail when no error
+  }
+
+  // Toggle EDC gear visibility: hide when connected, show when disconnected
+  if (module === 'edc') {
+    const gear = document.getElementById('btn-edc-gear');
+    const settings = document.getElementById('edc-settings');
+    if (gear) {
+      gear.style.display = (status === 'connected') ? 'none' : '';
+    }
+    // Collapse settings panel when connected
+    if (settings && status === 'connected') {
+      settings.classList.remove('open');
+      if (gear) gear.classList.remove('open');
+    }
+  }
 }
 
 // Initial status fetch
@@ -107,12 +138,38 @@ document.getElementById('xray-config-toggle').addEventListener('click', () => {
   header.classList.toggle('open');
 });
 
+// ── Populate COM port dropdown ──
+async function populateComPorts(selectedPort) {
+  const select = document.getElementById('edc-com');
+  const ports = await bridge.listSerialPorts();
+  // Keep only the default placeholder
+  select.innerHTML = '<option value="">Select port...</option>';
+  ports.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.path;
+    opt.textContent = p.path + (p.friendlyName ? ` (${p.friendlyName})` : '');
+    select.appendChild(opt);
+  });
+  if (selectedPort) {
+    select.value = selectedPort;
+  } else {
+    // Auto-select Quectel USB AT Port
+    const quectel = ports.find(p => p.friendlyName && p.friendlyName.includes('Quectel USB AT Port'));
+    if (quectel) select.value = quectel.path;
+  }
+}
+
 // ── Load Settings ──
 async function loadSettings() {
   const config = await bridge.getConfig();
   if (config.edc) {
-    document.getElementById('edc-com').value = config.edc.comPort || '';
+    await populateComPorts(config.edc.comPort || '');
     document.getElementById('edc-baud').value = config.edc.baudRate || 9600;
+    if (config.edc.comPort) {
+      document.getElementById('edc-detail').textContent = config.edc.comPort;
+    }
+  } else {
+    await populateComPorts('');
   }
   if (config.xray) {
     document.getElementById('xray-folder').value = config.xray.watchFolder || '';
