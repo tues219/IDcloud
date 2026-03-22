@@ -72,7 +72,28 @@ function updateStatus(module, status, error) {
   }
 
   const detail = document.getElementById(`${elId}-detail`);
-  if (detail) detail.textContent = error || '';
+  if (detail) {
+    if (error) {
+      detail.textContent = error;
+    } else if (module !== 'edc') {
+      detail.textContent = '';
+    }
+    // For EDC, preserve port detail when no error
+  }
+
+  // Toggle EDC gear visibility: hide when connected, show when disconnected
+  if (module === 'edc') {
+    const gear = document.getElementById('btn-edc-gear');
+    const settings = document.getElementById('edc-settings');
+    if (gear) {
+      gear.style.display = (status === 'connected') ? 'none' : '';
+    }
+    // Collapse settings panel when connected
+    if (settings && status === 'connected') {
+      settings.classList.remove('open');
+      if (gear) gear.classList.remove('open');
+    }
+  }
 }
 
 // Initial status fetch
@@ -129,7 +150,13 @@ async function populateComPorts(selectedPort) {
     opt.textContent = p.path + (p.friendlyName ? ` (${p.friendlyName})` : '');
     select.appendChild(opt);
   });
-  if (selectedPort) select.value = selectedPort;
+  if (selectedPort) {
+    select.value = selectedPort;
+  } else {
+    // Auto-select Quectel USB AT Port
+    const quectel = ports.find(p => p.friendlyName && p.friendlyName.includes('Quectel USB AT Port'));
+    if (quectel) select.value = quectel.path;
+  }
 }
 
 // ── Load Settings ──
@@ -138,6 +165,9 @@ async function loadSettings() {
   if (config.edc) {
     await populateComPorts(config.edc.comPort || '');
     document.getElementById('edc-baud').value = config.edc.baudRate || 9600;
+    if (config.edc.comPort) {
+      document.getElementById('edc-detail').textContent = config.edc.comPort;
+    }
   } else {
     await populateComPorts('');
   }
