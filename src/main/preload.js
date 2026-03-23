@@ -40,6 +40,12 @@ contextBridge.exposeInMainWorld('bridge', {
   setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
   restartApp: () => ipcRenderer.invoke('restart-app'),
 
+  // Auto-Update
+  checkForUpdate: () => ipcRenderer.invoke('update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('update-download'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_, data) => cb(data)),
+
   // Events
   onStatusUpdate: (cb) => ipcRenderer.on('status-update', (_, data) => cb(data)),
   onEvent: (cb) => ipcRenderer.on('bridge-event', (_, data) => cb(data)),

@@ -13,6 +13,7 @@ const UploadQueue = require('./modules/xray/upload-queue');
 const AuthManager = require('./modules/xray/auth-manager');
 const WsServer = require('../ws-server');
 const { listSerialPorts } = require('./modules/edc/list-ports');
+const { initAutoUpdater } = require('./updater');
 
 const logger = createLogger('main');
 
@@ -330,6 +331,8 @@ app.whenReady().then(async () => {
   // Apply auto-start setting
   const appConfig = getConfig('app');
   app.setLoginItemSettings({ openAtLogin: !!appConfig.autoStart });
+
+  initAutoUpdater(mainWindow, logger, showNotification);
 
   await initModules();
 

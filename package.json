@@ -10,7 +10,9 @@
     "test:watch": "vitest",
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
-    "rebuild": "electron-rebuild"
+    "rebuild": "electron-rebuild",
+    "publish:win": "electron-builder --win --publish always",
+    "publish:mac": "electron-builder --mac --publish always"
   },
   "dependencies": {
     "@fortawesome/fontawesome-free": "^7.2.0",
@@ -57,6 +59,13 @@
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "arm64",
             "x64"
