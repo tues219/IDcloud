@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('bridge', {
   readCard: () => ipcRenderer.invoke('read-card'),
 
   // EDC
+  listSerialPorts: () => ipcRenderer.invoke('list-serial-ports'),
   edcTransaction: (txCode, data) => ipcRenderer.invoke('edc-transaction', txCode, data),
 
   // Xray
@@ -26,9 +27,24 @@ contextBridge.exposeInMainWorld('bridge', {
   // Auth
   login: (credentials) => ipcRenderer.invoke('auth-login', credentials),
   logout: () => ipcRenderer.invoke('auth-logout'),
+  getAuthStatus: () => ipcRenderer.invoke('auth-status'),
+  getClinicList: () => ipcRenderer.invoke('get-clinic-list'),
+  selectBranch: (clinicBranchURL) => ipcRenderer.invoke('select-branch', clinicBranchURL),
+
+  // Logs
+  getLogs: () => ipcRenderer.invoke('get-logs'),
 
   // App
   getVersion: () => ipcRenderer.invoke('app-version'),
+  getAutoStart: () => ipcRenderer.invoke('get-auto-start'),
+  setAutoStart: (enabled) => ipcRenderer.invoke('set-auto-start', enabled),
+  restartApp: () => ipcRenderer.invoke('restart-app'),
+
+  // Auto-Update
+  checkForUpdate: () => ipcRenderer.invoke('update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('update-download'),
+  installUpdate: () => ipcRenderer.invoke('update-install'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_, data) => cb(data)),
 
   // Events
   onStatusUpdate: (cb) => ipcRenderer.on('status-update', (_, data) => cb(data)),

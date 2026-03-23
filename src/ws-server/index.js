@@ -1,7 +1,34 @@
 const { WebSocketServer } = require('ws');
 const { createLogger } = require('../main/logger');
+const { formatEdcResponse } = require('../main/modules/edc/response-formatter');
 
 const logger = createLogger('ws-server');
+
+const ACTION_TX_MAP = {
+  sale: '20',
+  'qr-sale': 'QR',
+  cancel: '26',
+  reprint: '92',
+};
+
+const EDC_ERROR_CODES = {
+  EDC_NOT_CONNECTED: { recoverable: true },
+  EDC_NO_ACK: { recoverable: true },
+  EDC_ACK_TIMEOUT: { recoverable: true },
+  EDC_RESPONSE_TIMEOUT: { recoverable: true },
+  EDC_CHECKSUM_ERROR: { recoverable: true },
+};
+
+function mapEdcError(err) {
+  const code = err.message;
+  const known = EDC_ERROR_CODES[code];
+  return {
+    code: known ? code : 'EDC_ERROR',
+    message: err.message,
+    responseCode: null,
+    recoverable: known ? known.recoverable : false,
+  };
+}
 
 class WsServer {
   constructor(modules) {
@@ -104,69 +131,47 @@ class WsServer {
   async _handleEdc(ws, id, action, data) {
     if (!data) data = {};
 
-    // Handle legacy frontend format (from DcPaymentWebsocket.vue)
-    if (data.PresentationHeader || data.ReserveForFurfuresUse) {
-      return this._handleEdcLegacy(ws, id, data);
+    const txCode = ACTION_TX_MAP[action];
+    if (!txCode) {
+      ws.send(JSON.stringify({
+        id, type: 'edc', event: 'error',
+        error: { code: 'INVALID_REQUEST', message: `Unknown action: ${action}`, responseCode: null, recoverable: false },
+      }));
+      return;
     }
 
-    try {
-      let txCode;
-      switch (action) {
-        case 'pay':
-          txCode = data.transactionCode || '20';
-          break;
-        case 'cancel':
-          txCode = '26';
-          break;
-        case 'reprint':
-          txCode = '92';
-          break;
-        default:
-          throw new Error(`Unknown EDC action: ${action}`);
-      }
-
-      // Send ACK first
+    // Validate required fields
+    if ((action === 'sale' || action === 'qr-sale') && (!data.amount || data.amount <= 0)) {
       ws.send(JSON.stringify({
-        id,
-        AcknowledgeCode: 'AA',
-        AcknowledgeDateTime: new Date().toISOString(),
+        id, type: 'edc', event: 'error',
+        error: { code: 'INVALID_REQUEST', message: 'Amount is required and must be > 0', responseCode: null, recoverable: false },
       }));
-
-      const result = await this.modules.edc.processTransaction(txCode, data);
-      ws.send(JSON.stringify({ id, ...result }));
-    } catch (err) {
-      ws.send(JSON.stringify({ id, event: 'error', error: err.message }));
+      return;
     }
-  }
-
-  async _handleEdcLegacy(ws, id, msg) {
-    try {
-      const txCode = msg.PresentationHeader?.TransactionCode || '20';
-      const fields = msg.FieldDatas || [];
-
-      const data = {};
-      for (const f of fields) {
-        switch (f.FieldType) {
-          case 'A1': data.ref1 = f.Data; data.receiptNo = f.Data; break;
-          case 'A2': data.ref2 = f.Data; break;
-          case 'A3': data.vatRefund = f.Data; break;
-          case '40': data.amount = f.Data; break;
-          case '65': data.invoiceNo = f.Data; break;
-          case '01': data.approvalCode = f.Data; break;
-          case 'F1': data.cardType = f.Data?.trim(); break;
-        }
-      }
-
-      // Send ACK
+    if ((action === 'cancel' || action === 'reprint') && !data.invoiceNo) {
       ws.send(JSON.stringify({
-        AcknowledgeCode: 'AA',
-        AcknowledgeDateTime: new Date().toISOString(),
+        id, type: 'edc', event: 'error',
+        error: { code: 'INVALID_REQUEST', message: 'Invoice number is required', responseCode: null, recoverable: false },
       }));
+      return;
+    }
 
+    // Send ACK
+    ws.send(JSON.stringify({
+      id, type: 'edc', event: 'ack',
+      timestamp: new Date().toISOString(),
+    }));
+
+    try {
       const result = await this.modules.edc.processTransaction(txCode, data);
-      ws.send(JSON.stringify(result));
+      const formatted = formatEdcResponse(result);
+      ws.send(JSON.stringify({ id, type: 'edc', ...formatted }));
     } catch (err) {
-      ws.send(JSON.stringify({ event: 'error', error: err.message }));
+      logger.error('EDC transaction failed', { action, error: err.message });
+      ws.send(JSON.stringify({
+        id, type: 'edc', event: 'error',
+        error: mapEdcError(err),
+      }));
     }
   }
 

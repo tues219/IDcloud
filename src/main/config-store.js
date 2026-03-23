@@ -4,7 +4,7 @@ const schema = {
   edc: {
     type: 'object',
     properties: {
-      comPort: { type: 'string', default: 'COM1' },
+      comPort: { type: 'string', default: '' },
       baudRate: { type: 'number', default: 9600 },
       dataBits: { type: 'number', default: 8 },
       stopBits: { type: 'number', default: 1 },
@@ -19,7 +19,7 @@ const schema = {
     type: 'object',
     properties: {
       watchFolder: { type: 'string', default: '' },
-      apiBaseUrl: { type: 'string', default: '' },
+      apiBaseUrl: { type: 'string', default: 'https://api.dentcloud.app' },
       clinicBranchURL: { type: 'string', default: '' },
       email: { type: 'string', default: '' },
       autoStart: { type: 'boolean', default: true },
