@@ -31,6 +31,48 @@ bridge.getVersion().then(v => {
   document.getElementById('version').textContent = `v${v}`;
 });
 
+// Auto-Update
+bridge.onUpdateStatus((data) => {
+  const banner = document.getElementById('update-banner');
+  const msg = document.getElementById('update-message');
+  const dlBtn = document.getElementById('btn-update-download');
+  const installBtn = document.getElementById('btn-update-install');
+  const progress = document.getElementById('update-progress');
+  const progressBar = document.getElementById('update-progress-bar');
+
+  switch (data.status) {
+    case 'available':
+      banner.style.display = '';
+      msg.textContent = `Version ${data.version} is available`;
+      dlBtn.style.display = '';
+      installBtn.style.display = 'none';
+      progress.style.display = 'none';
+      break;
+    case 'downloading':
+      dlBtn.style.display = 'none';
+      progress.style.display = '';
+      progressBar.style.width = `${data.percent}%`;
+      msg.textContent = `Downloading update... ${Math.round(data.percent)}%`;
+      break;
+    case 'downloaded':
+      progress.style.display = 'none';
+      installBtn.style.display = '';
+      msg.textContent = `Version ${data.version} ready to install`;
+      break;
+    case 'error':
+      banner.style.display = '';
+      msg.textContent = 'Update check failed';
+      setTimeout(() => banner.style.display = 'none', 5000);
+      break;
+  }
+});
+
+document.getElementById('btn-update-download').addEventListener('click', () => bridge.downloadUpdate());
+document.getElementById('btn-update-install').addEventListener('click', () => bridge.installUpdate());
+document.getElementById('btn-update-dismiss').addEventListener('click', () => {
+  document.getElementById('update-banner').style.display = 'none';
+});
+
 // Status updates
 bridge.onStatusUpdate((data) => {
   addLog('info', data.module, `Status: ${data.status}`);
@@ -48,6 +90,7 @@ bridge.onQueueUpdate((status) => {
 });
 
 const STATUS_LABELS = {
+  'ready': 'Ready',
   'connected': 'Connected',
   'disconnected': 'Disconnected',
   'card-inserted': 'Card Inserted',
@@ -75,25 +118,16 @@ function updateStatus(module, status, error) {
   if (detail) {
     if (error) {
       detail.textContent = error;
+    } else if (module === 'edc' && (status === 'connected' || status === 'ready')) {
+      // Show port name when EDC is ready/connected
+      bridge.getConfig().then(cfg => {
+        if (cfg.edc && cfg.edc.comPort) detail.textContent = cfg.edc.comPort;
+      });
     } else if (module !== 'edc') {
       detail.textContent = '';
     }
-    // For EDC, preserve port detail when no error
   }
 
-  // Toggle EDC gear visibility: hide when connected, show when disconnected
-  if (module === 'edc') {
-    const gear = document.getElementById('btn-edc-gear');
-    const settings = document.getElementById('edc-settings');
-    if (gear) {
-      gear.style.display = (status === 'connected') ? 'none' : '';
-    }
-    // Collapse settings panel when connected
-    if (settings && status === 'connected') {
-      settings.classList.remove('open');
-      if (gear) gear.classList.remove('open');
-    }
-  }
 }
 
 // Initial status fetch
@@ -152,9 +186,11 @@ async function populateComPorts(selectedPort) {
   });
   if (selectedPort) {
     select.value = selectedPort;
-  } else {
-    // Auto-select Quectel USB AT Port
-    const quectel = ports.find(p => p.friendlyName && p.friendlyName.includes('Quectel USB AT Port'));
+  }
+  // Fallback: if no port selected (none saved, or saved port not in list), auto-select Quectel
+  if (!select.value) {
+    const quectelPorts = ports.filter(p => p.friendlyName && p.friendlyName.includes('Quectel USB AT Port'));
+    const quectel = quectelPorts.length ? quectelPorts[quectelPorts.length - 1] : null;
     if (quectel) select.value = quectel.path;
   }
 }
@@ -188,6 +224,11 @@ document.getElementById('btn-save-edc').addEventListener('click', async () => {
     baudRate: parseInt(document.getElementById('edc-baud').value),
   });
   addLog('info', 'settings', 'EDC settings saved');
+
+  const restart = confirm('EDC settings saved. The application needs to restart to apply changes.\n\nRestart now?');
+  if (restart) {
+    await bridge.restartApp();
+  }
 });
 
 // ── X-ray Save (inline in X-ray tab) ──

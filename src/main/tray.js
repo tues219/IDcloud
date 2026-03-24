@@ -66,8 +66,11 @@ function createTray(mainWindow, logger) {
 }
 
 function showNotification(title, body) {
-  if (tray && process.platform === 'win32') {
+  if (process.platform === 'win32' && tray) {
     tray.displayBalloon({ iconType: 'info', title, content: body });
+  } else {
+    const { Notification } = require('electron');
+    new Notification({ title, body }).show();
   }
 }
 
