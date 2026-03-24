@@ -138,7 +138,7 @@ async function refreshStatus() {
     updateStatus('edc', status.edc.status);
     updateStatus('xray', status.xray.fileWatcher.isWatching ? 'connected' : 'disconnected');
     // ws status — always running if we got here
-    updateStatus('ws', 'connected');
+    updateStatus('ws', 'ready');
     if (status.xray.queue) renderQueue(status.xray.queue);
   } catch (err) {
     addLog('error', 'dashboard', err.message);
