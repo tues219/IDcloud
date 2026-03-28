@@ -257,168 +257,65 @@ document.getElementById('btn-select-folder').addEventListener('click', async () 
 // ── Xray Auth ──
 let currentUser = null;
 
-function showLoginView() {
-  document.getElementById('xray-login').style.display = '';
-  document.getElementById('xray-branch-select').style.display = 'none';
+function showConnectView() {
+  document.getElementById('xray-connect').style.display = '';
   document.getElementById('xray-authenticated').style.display = 'none';
-  document.getElementById('xray-login-error').textContent = '';
+  document.getElementById('xray-connect-error').textContent = '';
 }
 
-function showBranchSelectView(user, clinics) {
-  currentUser = user;
-  document.getElementById('xray-login').style.display = 'none';
-  document.getElementById('xray-branch-select').style.display = '';
-  document.getElementById('xray-authenticated').style.display = 'none';
-  document.getElementById('xray-branch-user-email').textContent = user?.email || '';
-
-  // Auto-select if only 1 clinic with 1 branch
-  if (clinics.length === 1 && clinics[0].branches && clinics[0].branches.length === 1) {
-    const clinic = clinics[0];
-    const branch = clinic.branches[0];
-    selectBranch(clinic.code, branch.code);
-    return;
-  }
-
-  document.getElementById('clinic-list').innerHTML = renderClinicList(clinics);
-  attachBranchHandlers();
-}
-
-function showAuthenticatedView(user) {
-  currentUser = user;
-  document.getElementById('xray-login').style.display = 'none';
-  document.getElementById('xray-branch-select').style.display = 'none';
+function showConnectedView(device, branch) {
+  document.getElementById('xray-connect').style.display = 'none';
   document.getElementById('xray-authenticated').style.display = '';
-  document.getElementById('xray-user-email').textContent = user?.email || '';
+  document.getElementById('xray-device-name').textContent = device?.name || 'Device';
+  document.getElementById('xray-branch-name').textContent = branch?.name || '';
 }
 
-function renderClinicList(clinics) {
-  if (!clinics || clinics.length === 0) {
-    return '<div class="no-results">No clinics available</div>';
-  }
-  return clinics.map(clinic => `
-    <div class="clinic-card">
-      <div class="clinic-name">${esc(clinic.name || clinic.code)}</div>
-      <div class="branch-list">
-        ${(clinic.branches || []).map(branch => `
-          <button class="branch-btn" data-clinic="${esc(clinic.code)}" data-branch="${esc(branch.code)}">
-            ${esc(branch.name || branch.code)}
-          </button>
-        `).join('')}
-      </div>
-    </div>
-  `).join('');
-}
-
-function attachBranchHandlers() {
-  document.querySelectorAll('.branch-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectBranch(btn.dataset.clinic, btn.dataset.branch);
-    });
-  });
-}
-
-async function selectBranch(clinicCode, branchCode) {
-  const btn = document.querySelector(`.branch-btn[data-clinic="${clinicCode}"][data-branch="${branchCode}"]`);
-  const originalText = btn ? btn.textContent : '';
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>';
-  }
-  try {
-    const result = await bridge.selectBranch(`${clinicCode}/${branchCode}`);
-    if (result.success) {
-      showAuthenticatedView(currentUser);
-      addLog('info', 'xray', `Branch selected: ${clinicCode}/${branchCode}`);
-    } else {
-      addLog('error', 'xray', `Branch selection failed: ${result.error}`);
-    }
-  } catch (err) {
-    addLog('error', 'xray', `Branch selection failed: ${err.message}`);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = originalText;
-    }
-  }
-}
 
 // Check auth status on load
 bridge.getAuthStatus().then(async (status) => {
-  if (status.authenticated && status.user) {
-    if (status.hasBranch) {
-      showAuthenticatedView(status.user);
-    } else {
-      const clinicResult = await bridge.getClinicList();
-      if (clinicResult.success && clinicResult.clinics && clinicResult.clinics.length > 0) {
-        showBranchSelectView(status.user, clinicResult.clinics);
-      } else {
-        showAuthenticatedView(status.user);
-      }
-    }
+  if (status.authenticated && status.device) {
+    showConnectedView(status.device, status.branch);
   } else {
-    showLoginView();
+    showConnectView();
   }
 });
 
-// Pre-fill email from config
-bridge.getConfig().then(config => {
-  if (config.xray && config.xray.email) {
-    document.getElementById('xray-email').value = config.xray.email;
-  }
-});
 
-document.getElementById('btn-xray-login').addEventListener('click', async () => {
-  const email = document.getElementById('xray-email').value.trim();
-  const password = document.getElementById('xray-password').value;
-  const errorEl = document.getElementById('xray-login-error');
+document.getElementById('btn-xray-connect').addEventListener('click', async () => {
+  const apiKey = document.getElementById('xray-api-key').value.trim();
+  const errorEl = document.getElementById('xray-connect-error');
   errorEl.textContent = '';
 
-  if (!email || !password) {
-    errorEl.textContent = 'Please enter email and password';
+  if (!apiKey) {
+    errorEl.textContent = 'Please enter your API key';
     return;
   }
 
-  const loginBtn = document.getElementById('btn-xray-login');
-  loginBtn.disabled = true;
-  loginBtn.innerHTML = '<span class="spinner"></span>Signing in...';
+  const connectBtn = document.getElementById('btn-xray-connect');
+  connectBtn.disabled = true;
+  connectBtn.innerHTML = '<span class="spinner"></span>Connecting...';
 
   try {
-    const result = await bridge.login({ email, password });
+    const result = await bridge.saveApiKey({ apiKey });
     if (result.success) {
-      const config = await bridge.getConfig();
-      const xrayConfig = config.xray || {};
-      xrayConfig.email = email;
-      await bridge.saveConfig('xray', xrayConfig);
-      addLog('info', 'xray', 'Signed in successfully');
-
-      if (result.clinics && result.clinics.length > 0) {
-        showBranchSelectView(result.user, result.clinics);
-      } else {
-        showAuthenticatedView(result.user);
-      }
+      addLog('info', 'xray', `Connected as ${result.device?.name || 'device'}`);
+      showConnectedView(result.device, result.branch);
     } else {
-      errorEl.textContent = result.error || 'Login failed';
+      errorEl.textContent = result.error || 'Connection failed';
     }
   } catch (err) {
-    errorEl.textContent = err.message || 'Login failed';
+    errorEl.textContent = err.message || 'Connection failed';
   } finally {
-    loginBtn.disabled = false;
-    loginBtn.textContent = 'Sign In';
+    connectBtn.disabled = false;
+    connectBtn.textContent = 'Connect';
   }
 });
 
-document.getElementById('btn-xray-logout').addEventListener('click', async () => {
-  await bridge.logout();
-  showLoginView();
-  document.getElementById('xray-password').value = '';
-  addLog('info', 'xray', 'Signed out');
-});
-
-document.getElementById('btn-branch-logout').addEventListener('click', async () => {
-  await bridge.logout();
-  showLoginView();
-  document.getElementById('xray-password').value = '';
-  addLog('info', 'xray', 'Signed out');
+document.getElementById('btn-xray-disconnect').addEventListener('click', async () => {
+  await bridge.disconnectDevice();
+  showConnectView();
+  document.getElementById('xray-api-key').value = '';
+  addLog('info', 'xray', 'Disconnected');
 });
 
 // ── Drop Zone ──

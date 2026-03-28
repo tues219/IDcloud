@@ -81,12 +81,14 @@ class UploadQueue extends EventEmitter {
         return;
       }
 
-      // Get presigned URL
+      // Get presigned URL — upload to patient's branch if available
       item.progress = 30;
+      const targetBranch = decision.patient?.branchCode || null;
       const presigned = await this.authManager.getPresignedUploadURL(
         decision.patientId,
         { contentType: 'application/dicom', filename: item.fileInfo.name },
-        item.metadata
+        item.metadata,
+        targetBranch
       );
       if (!presigned.success) throw new Error(`Presigned URL failed: ${presigned.error}`);
 

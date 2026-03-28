@@ -24,12 +24,10 @@ contextBridge.exposeInMainWorld('bridge', {
   lookupPatient: (dn) => ipcRenderer.invoke('lookup-patient', dn),
   assignPatient: (queueItemId, patientInfo) => ipcRenderer.invoke('assign-patient', queueItemId, patientInfo),
 
-  // Auth
-  login: (credentials) => ipcRenderer.invoke('auth-login', credentials),
-  logout: () => ipcRenderer.invoke('auth-logout'),
+  // Auth (Device API Key)
+  saveApiKey: (params) => ipcRenderer.invoke('save-api-key', params),
+  disconnectDevice: () => ipcRenderer.invoke('disconnect-device'),
   getAuthStatus: () => ipcRenderer.invoke('auth-status'),
-  getClinicList: () => ipcRenderer.invoke('get-clinic-list'),
-  selectBranch: (clinicBranchURL) => ipcRenderer.invoke('select-branch', clinicBranchURL),
 
   // Logs
   getLogs: () => ipcRenderer.invoke('get-logs'),

@@ -38,8 +38,7 @@
 
     <nav>
       <button class="tab active" data-tab="status">Dashboard</button>
-      <!-- X-ray tab disabled for production; re-enable when ready -->
-      <button class="tab" data-tab="xray" style="display:none">X-ray</button>
+      <button class="tab" data-tab="xray">X-ray</button>
       <button class="tab" data-tab="log">Event Log</button>
     </nav>
 
@@ -94,8 +93,7 @@
           </div>
         </div>
 
-        <!-- X-ray status hidden for production; re-enable when ready -->
-        <div class="status-row" data-service="xray" style="display:none">
+        <div class="status-row" data-service="xray">
           <span class="svc-dot disconnected" id="xray-dot"></span>
           <span class="svc-name">X-ray Watcher</span>
           <span class="svc-state" id="xray-status">Stopped</span>
@@ -143,37 +141,24 @@
         </div>
       </div>
 
-      <!-- Login -->
-      <div id="xray-login" class="xray-auth-card">
-        <h3>Sign in to DentCloud</h3>
-        <p class="auth-hint">Required to upload x-ray images</p>
+      <!-- Connect with API Key -->
+      <div id="xray-connect" class="xray-auth-card">
+        <h3>Connect to DentCloud</h3>
+        <p class="auth-hint">Enter your device API key to start uploading</p>
         <div class="form-group">
-          <label>Email</label>
-          <input type="email" id="xray-email" placeholder="you@clinic.com">
+          <label>API Key</label>
+          <input type="text" id="xray-api-key" placeholder="dck_...">
         </div>
-        <div class="form-group">
-          <label>Password</label>
-          <input type="password" id="xray-password" placeholder="Enter password">
-        </div>
-        <button id="btn-xray-login" class="btn-primary">Sign In</button>
-        <div id="xray-login-error" class="login-error"></div>
+        <button id="btn-xray-connect" class="btn-primary">Connect</button>
+        <div id="xray-connect-error" class="login-error"></div>
+        <p class="auth-hint" style="margin-top: 12px; font-size: 11px">รับ API Key ได้จากหน้า DentCloud Admin (ตั้งค่า > อุปกรณ์ที่เชื่อมต่อ)<br>Get your API key from the DentCloud admin dashboard (Settings > Connected Devices)</p>
       </div>
 
-      <!-- Branch Select -->
-      <div id="xray-branch-select" style="display:none">
-        <div class="auth-bar">
-          <span>Signed in as <strong id="xray-branch-user-email"></strong></span>
-          <button id="btn-branch-logout" class="btn-ghost">Sign Out</button>
-        </div>
-        <h3 class="section-title">Select Your Branch</h3>
-        <div id="clinic-list"></div>
-      </div>
-
-      <!-- Authenticated -->
+      <!-- Connected -->
       <div id="xray-authenticated" style="display:none">
         <div class="auth-bar">
-          <span>Signed in as <strong id="xray-user-email"></strong></span>
-          <button id="btn-xray-logout" class="btn-ghost">Sign Out</button>
+          <span>Connected: <strong id="xray-device-name"></strong> | <span id="xray-branch-name"></span></span>
+          <button id="btn-xray-disconnect" class="btn-ghost">Disconnect</button>
         </div>
         <div id="drop-zone" class="drop-zone">
           <div class="drop-zone-inner">
@@ -214,7 +199,7 @@
         <button class="filter-chip active" data-filter="all">All</button>
         <button class="filter-chip" data-filter="cardReader">Card Reader</button>
         <button class="filter-chip" data-filter="edc">EDC</button>
-        <button class="filter-chip" data-filter="xray" style="display:none">X-ray</button>
+        <button class="filter-chip" data-filter="xray">X-ray</button>
         <button class="filter-chip" data-filter="ws">Connection</button>
         <button class="filter-chip" data-filter="error">Error</button>
       </div>
