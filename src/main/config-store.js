@@ -66,6 +66,8 @@ function setConfig(section, value) {
 }
 
 function saveCredential(key, value) {
+  // Always save plain-text fallback so credentials survive DPAPI context changes after updates
+  getStore().set(`_plain.${key}`, value);
   try {
     const { safeStorage } = require('electron');
     if (safeStorage.isEncryptionAvailable()) {
@@ -74,7 +76,6 @@ function saveCredential(key, value) {
       return true;
     }
   } catch {}
-  getStore().set(`_plain.${key}`, value);
   return false;
 }
 
@@ -85,8 +86,22 @@ function loadCredential(key) {
     if (encrypted && safeStorage.isEncryptionAvailable()) {
       return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
     }
-  } catch {}
-  return getStore().get(`_plain.${key}`) || null;
+  } catch {
+    // Decryption failed (e.g. DPAPI context changed after update) -- fall through to plain text
+  }
+
+  const plain = getStore().get(`_plain.${key}`) || null;
+  if (plain) {
+    // Re-encrypt for next time so the encrypted path works again
+    try {
+      const { safeStorage } = require('electron');
+      if (safeStorage.isEncryptionAvailable()) {
+        const encrypted = safeStorage.encryptString(plain);
+        getStore().set(`_encrypted.${key}`, encrypted.toString('base64'));
+      }
+    } catch {}
+  }
+  return plain;
 }
 
 module.exports = { getConfig, setConfig, saveCredential, loadCredential, getStore };

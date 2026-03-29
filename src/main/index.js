@@ -56,6 +56,12 @@ fileWatcher.setFileDetectedHandler(async (fileInfo) => {
     if (mainWindow) {
       mainWindow.webContents.send('bridge-event', { type: 'file-detected', fileInfo, metadata: result.metadata });
     }
+
+    // Native OS notification (useful when minimized to tray)
+    const xrayConfig = getConfig('xray');
+    if (xrayConfig.notifications !== false) {
+      showNotification('X-ray File Detected', fileInfo.name);
+    }
   }
 });
 
