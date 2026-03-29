@@ -104,6 +104,7 @@ bridge.onStatusUpdate((data) => {
 bridge.onEvent((data) => {
   if (data.type === 'file-detected') {
     addLog('info', 'xray', `File detected: ${data.fileInfo.name}`);
+    showToast(`File detected: ${data.fileInfo.name}`);
   }
 });
 
