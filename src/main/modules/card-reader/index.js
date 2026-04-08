@@ -40,6 +40,10 @@ class CardReaderModule extends EventEmitter {
     this._destroyed = false;
     // Clean up any existing monitor before creating a new one
     this._stopMonitor();
+    this._disconnectCard();
+    this.lastReadData = null;
+    this.isReading = false;
+    this._readGeneration++;
     this.status = 'disconnected';
     this.devices = new smartcard.Devices();
 
@@ -58,6 +62,10 @@ class CardReaderModule extends EventEmitter {
     this.devices.on('card-inserted', async (event) => {
       if (this._destroyed) return;
       this._stopInsertionWatcher();
+      // Clear previous card data immediately to prevent stale reads
+      this.lastReadData = null;
+      this.isReading = false;
+      this._readGeneration++;
       await delay(300);
       if (this._destroyed) return;
 
@@ -144,6 +152,8 @@ class CardReaderModule extends EventEmitter {
       return;
     }
     this.isReading = true;
+    this.status = 'reading';
+    this.emit('status', { status: 'reading' });
     const gen = this._readGeneration;
 
     try {
@@ -201,11 +211,16 @@ class CardReaderModule extends EventEmitter {
     const card = this.currentCard;
     if (!card) return;
 
+    let pollCount = 0;
+    const CROSS_CHECK_INTERVAL = 300; // cross-check every ~5 min
+
     this._cardWatchTimer = setInterval(async () => {
       if (this._destroyed || !this.currentCard) {
         this._stopCardWatcher();
         return;
       }
+
+      pollCount++;
 
       try {
         card.getStatus();
@@ -222,6 +237,34 @@ class CardReaderModule extends EventEmitter {
 
         // Native PCSC monitor can't detect insertion either — poll via periodic reinit
         this._startInsertionWatcher();
+        return;
+      }
+
+      // Periodically cross-check with a fresh context to catch stale handles
+      if (pollCount >= CROSS_CHECK_INTERVAL) {
+        pollCount = 0;
+        let ctx;
+        try {
+          ctx = new smartcard.Context();
+          const readers = ctx.listReaders();
+          const cardPresent = readers.some(r => (r.state & SCARD_STATE_PRESENT) !== 0);
+
+          if (!cardPresent) {
+            this.logger.info('Card absence confirmed by cross-check (stale handle)');
+            this._stopCardWatcher();
+            this._readGeneration++;
+            this._disconnectCard();
+            this.lastReadData = null;
+            this.isReading = false;
+            this.status = 'connected';
+            this.emit('status', { status: 'connected' });
+            this._startInsertionWatcher();
+          }
+        } catch (_) {
+          // Context failed — skip this check, retry next cycle
+        } finally {
+          if (ctx) { try { ctx.close(); } catch (_) {} }
+        }
       }
     }, 1000);
   }

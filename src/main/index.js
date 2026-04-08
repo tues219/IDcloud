@@ -73,6 +73,11 @@ uploadQueue.on('queue-updated', (status) => {
 // Card reader events
 cardReader.on('status', (data) => {
   if (mainWindow) mainWindow.webContents.send('status-update', { module: 'cardReader', ...data });
+  // Broadcast to WS clients so they can clear/update displayed data
+  wsServer.broadcast('card-reader-status', { status: data.status });
+  if (data.status === 'card-inserted') showNotification('Card Reader', 'Card inserted');
+  if (data.status === 'reading') showNotification('Card Reader', 'Reading card...');
+  if (data.status === 'read-complete') showNotification('Card Reader', 'Card read complete');
   if (data.status === 'disconnected') showNotification('Card Reader', 'Reader disconnected');
 });
 cardReader.on('card-data', (data) => {
