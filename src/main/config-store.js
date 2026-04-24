@@ -1,4 +1,7 @@
 const Store = require('electron-store');
+const { createLogger } = require('./logger');
+
+const credLogger = createLogger('credentials');
 
 const schema = {
   edc: {
@@ -66,41 +69,86 @@ function setConfig(section, value) {
 }
 
 function saveCredential(key, value) {
-  // Always save plain-text fallback so credentials survive DPAPI context changes after updates
-  getStore().set(`_plain.${key}`, value);
+  let encryptionAvailable = false;
   try {
     const { safeStorage } = require('electron');
-    if (safeStorage.isEncryptionAvailable()) {
+    encryptionAvailable = safeStorage.isEncryptionAvailable();
+  } catch (err) {
+    credLogger.warn('safeStorage unavailable', { key, error: err.message });
+  }
+
+  // Always save plain-text fallback so credentials survive DPAPI context changes after updates
+  let plainWritten = false;
+  try {
+    getStore().set(`_plain.${key}`, value);
+    plainWritten = true;
+  } catch (err) {
+    credLogger.error('Plain credential write failed', { key, error: err.message });
+  }
+
+  let encryptedWritten = false;
+  if (encryptionAvailable) {
+    try {
+      const { safeStorage } = require('electron');
       const encrypted = safeStorage.encryptString(value);
       getStore().set(`_encrypted.${key}`, encrypted.toString('base64'));
-      return true;
+      encryptedWritten = true;
+    } catch (err) {
+      credLogger.error('Encrypted credential write failed', { key, error: err.message });
     }
-  } catch {}
-  return false;
+  }
+
+  credLogger.info('saveCredential', { key, encryptionAvailable, plainWritten, encryptedWritten });
+  return encryptedWritten;
 }
 
 function loadCredential(key) {
+  const hasEncrypted = !!getStore().get(`_encrypted.${key}`);
+  const hasPlain = !!getStore().get(`_plain.${key}`);
+  let encryptionAvailable = false;
   try {
     const { safeStorage } = require('electron');
-    const encrypted = getStore().get(`_encrypted.${key}`);
-    if (encrypted && safeStorage.isEncryptionAvailable()) {
-      return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+    encryptionAvailable = safeStorage.isEncryptionAvailable();
+  } catch (err) {
+    credLogger.warn('safeStorage unavailable', { key, error: err.message });
+  }
+  credLogger.info('loadCredential begin', { key, hasEncrypted, hasPlain, encryptionAvailable });
+
+  if (hasEncrypted && encryptionAvailable) {
+    try {
+      const { safeStorage } = require('electron');
+      const encrypted = getStore().get(`_encrypted.${key}`);
+      const decrypted = safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
+      // Mirror to plain so a future DPAPI context change doesn't orphan us
+      if (!hasPlain) {
+        try {
+          getStore().set(`_plain.${key}`, decrypted);
+          credLogger.info('loadCredential mirrored encrypted->plain', { key });
+        } catch (err) {
+          credLogger.error('Plain mirror write failed', { key, error: err.message });
+        }
+      }
+      credLogger.info('loadCredential result', { key, source: 'encrypted' });
+      return decrypted;
+    } catch (err) {
+      // Decryption failed (e.g. DPAPI context changed after update) -- fall through to plain text
+      credLogger.warn('Decrypt failed, falling back to plain', { key, error: err.message });
     }
-  } catch {
-    // Decryption failed (e.g. DPAPI context changed after update) -- fall through to plain text
   }
 
   const plain = getStore().get(`_plain.${key}`) || null;
-  if (plain) {
+  if (plain && encryptionAvailable) {
     // Re-encrypt for next time so the encrypted path works again
     try {
       const { safeStorage } = require('electron');
-      if (safeStorage.isEncryptionAvailable()) {
-        const encrypted = safeStorage.encryptString(plain);
-        getStore().set(`_encrypted.${key}`, encrypted.toString('base64'));
-      }
-    } catch {}
+      const encrypted = safeStorage.encryptString(plain);
+      getStore().set(`_encrypted.${key}`, encrypted.toString('base64'));
+      credLogger.info('loadCredential re-encrypted plain->encrypted', { key });
+    } catch (err) {
+      credLogger.error('Re-encrypt write failed', { key, error: err.message });
+    }
   }
+  credLogger.info('loadCredential result', { key, source: plain ? 'plain' : 'none' });
   return plain;
 }
 
