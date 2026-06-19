@@ -50,8 +50,8 @@ jobs:
 
       - name: Add sharp x64 prebuilds (for the Intel slice)
         run: |
-          SHARP_VER=$(node -p "require('sharp/package.json').version")
-          VIPS_VER=$(node -p "require('@img/sharp-libvips-darwin-arm64/package.json').version")
+          SHARP_VER=$(node -p "require('./node_modules/sharp/package.json').version")
+          VIPS_VER=$(node -p "require('./node_modules/@img/sharp-libvips-darwin-arm64/package.json').version")
           npm install --no-save --force --cpu=x64 --os=darwin \
             "@img/sharp-darwin-x64@$SHARP_VER" "@img/sharp-libvips-darwin-x64@$VIPS_VER"
 
