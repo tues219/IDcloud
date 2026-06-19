@@ -1,6 +1,8 @@
 const EventEmitter = require('events');
 const smartcard = require('smartcard');
 const { getReaderConfig } = require('./atr-config');
+
+const SCARD_STATE_PRESENT = 0x0020; // from WinSCard.h / pcsclite.h
 const PersonalApplet = require('./personal-applet');
 const NhsoApplet = require('./nhso-applet');
 const { delay } = require('./reader');
@@ -21,12 +23,27 @@ class CardReaderModule extends EventEmitter {
     this._readGeneration = 0; // incremented on card removal to cancel stale reads
     this._cardWatchTimer = null;
     this._insertWatchTimer = null;
+    this._pollCtx = null;
+    this._pollCtxAge = 0; // track how long the poll context has been alive
+  }
+
+  // Safely disconnect a card handle so the native SCARDHANDLE is released
+  // immediately instead of waiting for GC (which may never run on Win7).
+  _disconnectCard() {
+    if (this.currentCard) {
+      try { this.currentCard.disconnect(); } catch (_) {}
+      this.currentCard = null;
+    }
   }
 
   async init() {
     this._destroyed = false;
     // Clean up any existing monitor before creating a new one
     this._stopMonitor();
+    this._disconnectCard();
+    this.lastReadData = null;
+    this.isReading = false;
+    this._readGeneration++;
     this.status = 'disconnected';
     this.devices = new smartcard.Devices();
 
@@ -45,6 +62,10 @@ class CardReaderModule extends EventEmitter {
     this.devices.on('card-inserted', async (event) => {
       if (this._destroyed) return;
       this._stopInsertionWatcher();
+      // Clear previous card data immediately to prevent stale reads
+      this.lastReadData = null;
+      this.isReading = false;
+      this._readGeneration++;
       await delay(300);
       if (this._destroyed) return;
 
@@ -65,10 +86,12 @@ class CardReaderModule extends EventEmitter {
           this.logger.error('Card read failed', { error: err.message });
           this.status = 'error';
           this.emit('status', { status: 'error', error: err.message });
-          this.currentCard = null;
           this.lastReadData = null;
           this.isReading = false;
-          this._startInsertionWatcher();
+          // Kill native monitor (unreliable after error), use low-level
+          // polling to detect removal, then watch for reinsertion
+          this._stopMonitor();
+          this._startRemovalWatcher();
         }
       }
     });
@@ -77,7 +100,7 @@ class CardReaderModule extends EventEmitter {
       this._stopCardWatcher();
       this.logger.info('Card removed');
       this._readGeneration++; // cancel any in-progress read
-      this.currentCard = null;
+      this._disconnectCard();
       this.lastReadData = null;
       this.isReading = false;
       this.status = 'connected';
@@ -91,7 +114,7 @@ class CardReaderModule extends EventEmitter {
       this.logger.warn('Card reader disconnected');
       this._readGeneration++;
       this.currentDevice = null;
-      this.currentCard = null;
+      this._disconnectCard();
       this.lastReadData = null;
       this.isReading = false;
       this.status = 'disconnected';
@@ -109,7 +132,7 @@ class CardReaderModule extends EventEmitter {
         this.status = 'error';
         this._readGeneration++;
         this.currentDevice = null;
-        this.currentCard = null;
+        this._disconnectCard();
         this.lastReadData = null;
         this.isReading = false;
         this.emit('status', { status: 'disconnected' });
@@ -129,6 +152,8 @@ class CardReaderModule extends EventEmitter {
       return;
     }
     this.isReading = true;
+    this.status = 'reading';
+    this.emit('status', { status: 'reading' });
     const gen = this._readGeneration;
 
     try {
@@ -179,15 +204,23 @@ class CardReaderModule extends EventEmitter {
 
   _startCardWatcher() {
     this._stopCardWatcher();
+    // Release poll context — card watcher only uses card.getStatus(),
+    // so we don't need the extra SCardContext open.
+    this._closePollContext();
 
     const card = this.currentCard;
     if (!card) return;
+
+    let pollCount = 0;
+    const CROSS_CHECK_INTERVAL = 300; // cross-check every ~5 min
 
     this._cardWatchTimer = setInterval(async () => {
       if (this._destroyed || !this.currentCard) {
         this._stopCardWatcher();
         return;
       }
+
+      pollCount++;
 
       try {
         card.getStatus();
@@ -196,7 +229,7 @@ class CardReaderModule extends EventEmitter {
         this._stopCardWatcher();
 
         this._readGeneration++;
-        this.currentCard = null;
+        this._disconnectCard();
         this.lastReadData = null;
         this.isReading = false;
         this.status = 'connected';
@@ -204,6 +237,34 @@ class CardReaderModule extends EventEmitter {
 
         // Native PCSC monitor can't detect insertion either — poll via periodic reinit
         this._startInsertionWatcher();
+        return;
+      }
+
+      // Periodically cross-check with a fresh context to catch stale handles
+      if (pollCount >= CROSS_CHECK_INTERVAL) {
+        pollCount = 0;
+        let ctx;
+        try {
+          ctx = new smartcard.Context();
+          const readers = ctx.listReaders();
+          const cardPresent = readers.some(r => (r.state & SCARD_STATE_PRESENT) !== 0);
+
+          if (!cardPresent) {
+            this.logger.info('Card absence confirmed by cross-check (stale handle)');
+            this._stopCardWatcher();
+            this._readGeneration++;
+            this._disconnectCard();
+            this.lastReadData = null;
+            this.isReading = false;
+            this.status = 'connected';
+            this.emit('status', { status: 'connected' });
+            this._startInsertionWatcher();
+          }
+        } catch (_) {
+          // Context failed — skip this check, retry next cycle
+        } finally {
+          if (ctx) { try { ctx.close(); } catch (_) {} }
+        }
       }
     }, 1000);
   }
@@ -224,42 +285,27 @@ class CardReaderModule extends EventEmitter {
         return;
       }
 
-      // Lightweight check: create temp PCSC context, try to connect to reader
-      let ctx;
+      // Lightweight check: reuse persistent context, check reader state flags
       try {
-        ctx = new smartcard.Context();
+        const ctx = this._getPollContext();
         const readers = ctx.listReaders();
-        for (const reader of readers) {
-          try {
-            const card = await reader.connect(
-              smartcard.SCARD_SHARE_SHARED,
-              smartcard.SCARD_PROTOCOL_T0 | smartcard.SCARD_PROTOCOL_T1
-            );
-            // Card found — disconnect test connection and do full reinit
-            try { card.disconnect(); } catch (_) {}
-            try { ctx.close(); } catch (_) {}
-            ctx = null;
+        const cardPresent = readers.some(r => (r.state & SCARD_STATE_PRESENT) !== 0);
 
-            this.logger.info('Card presence detected by insertion watcher');
-            this._stopInsertionWatcher();
-            this._stopMonitor();
-            try {
-              await this.init();
-            } catch (initErr) {
-              this.logger.error('Failed to reinit after card detected', { error: initErr.message });
-              this._startReconnect();
-            }
-            return;
-          } catch (_) {
-            // No card in this reader
+        if (cardPresent) {
+          this.logger.info('Card presence detected by insertion watcher');
+          this._stopInsertionWatcher();
+          this._closePollContext();
+          this._stopMonitor();
+          try {
+            await this.init();
+          } catch (initErr) {
+            this.logger.error('Failed to reinit after card detected', { error: initErr.message });
+            this._startReconnect();
           }
         }
       } catch (_) {
-        // Context creation or listReaders failed
-      } finally {
-        if (ctx) {
-          try { ctx.close(); } catch (_) {}
-        }
+        // Context went stale — close so next tick creates a fresh one
+        this._closePollContext();
       }
     }, 1000);
   }
@@ -269,6 +315,57 @@ class CardReaderModule extends EventEmitter {
       clearInterval(this._insertWatchTimer);
       this._insertWatchTimer = null;
     }
+  }
+
+  _getPollContext() {
+    // Refresh context every ~300 polls (5 min at 1s interval) to prevent
+    // Windows 7 Smart Card Resource Manager state drift over long sessions.
+    this._pollCtxAge++;
+    if (this._pollCtx && this._pollCtxAge >= 300) {
+      this._closePollContext();
+    }
+    if (!this._pollCtx) {
+      this._pollCtx = new smartcard.Context();
+      this._pollCtxAge = 0;
+    }
+    return this._pollCtx;
+  }
+
+  _closePollContext() {
+    if (this._pollCtx) {
+      try { this._pollCtx.close(); } catch (_) {}
+      this._pollCtx = null;
+    }
+  }
+
+  _startRemovalWatcher() {
+    this._stopInsertionWatcher(); // reuse same timer slot
+
+    this._insertWatchTimer = setInterval(async () => {
+      if (this._destroyed) {
+        this._stopInsertionWatcher();
+        return;
+      }
+
+      try {
+        const ctx = this._getPollContext();
+        const readers = ctx.listReaders();
+        const cardPresent = readers.some(r => (r.state & SCARD_STATE_PRESENT) !== 0);
+
+        if (!cardPresent) {
+          this.logger.info('Card removal detected by removal watcher');
+          this._stopInsertionWatcher();
+          this._closePollContext();
+          this._disconnectCard();
+          this.status = 'connected';
+          this.emit('status', { status: 'connected' });
+          this._startInsertionWatcher();
+        }
+      } catch (_) {
+        // Context went stale — close so next tick creates a fresh one
+        this._closePollContext();
+      }
+    }, 1000);
   }
 
   // Called by WS handler when frontend requests a read
@@ -309,6 +406,7 @@ class CardReaderModule extends EventEmitter {
 
   _stopMonitor() {
     this._stopCardWatcher();
+    this._closePollContext();
     if (this.devices) {
       try { this.devices.stop(); } catch (_) {}
       this.devices.removeAllListeners();
@@ -352,12 +450,13 @@ class CardReaderModule extends EventEmitter {
     this._readGeneration++;
     this._stopCardWatcher();
     this._stopInsertionWatcher();
+    this._closePollContext();
     if (this._reconnectTimer) {
       clearInterval(this._reconnectTimer);
       this._reconnectTimer = null;
     }
     this._stopMonitor();
-    this.currentCard = null;
+    this._disconnectCard();
     this.currentDevice = null;
     this.lastReadData = null;
     this.isReading = false;
