@@ -19,7 +19,9 @@ concurrency:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # Pinned: windows-latest moved to Visual Studio 18, which node-gyp 9.x
+    # (used by the smartcard native rebuild) cannot detect.
+    runs-on: windows-2022
 
     steps:
       - name: Checkout

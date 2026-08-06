@@ -100,6 +100,44 @@ describe('Field Data', () => {
     const hex = fieldData.createNumberField('40', 100.50);
     expect(hex).toContain('1C');
   });
+
+  it('emits exactly the declared number of data bytes', () => {
+    // type (2) + length (2) + data (20) + FS (1) = 25 bytes = 50 hex chars
+    expect(fieldData.createStringField('A1', 'REC00001').length).toBe(50);
+    expect(fieldData.createStringField('A1', '').length).toBe(50);
+  });
+
+  it('truncates over-length data to the declared field length', () => {
+    const hex = fieldData.createStringField('A1', 'A'.repeat(25));
+    expect(hex.length).toBe(50);
+    const data = protocol.hexStringToString(hex.slice(8, -2));
+    expect(data).toBe('A'.repeat(20));
+  });
+
+  it('left-aligns reference fields (A1/A2) with trailing spaces', () => {
+    const data = protocol.hexStringToString(
+      fieldData.createStringField('A1', 'REC00001').slice(8, -2)
+    );
+    expect(data).toBe('REC00001'.padEnd(20, ' '));
+    expect(data.startsWith(' ')).toBe(false);
+  });
+
+  it('keeps other string fields left-padded (leading spaces)', () => {
+    const data = protocol.hexStringToString(
+      fieldData.createStringField('01', 'SO1IAY').slice(8, -2)
+    );
+    expect(data).toBe('SO1IAY'.padStart(9, ' '));
+  });
+
+  it('rejects non-ASCII data instead of corrupting the frame', () => {
+    expect(() => fieldData.createStringField('A1', 'ใบเสร็จ01'))
+      .toThrow(/EDC_INVALID_FIELD_DATA/);
+  });
+
+  it('rejects numbers that overflow the declared field length', () => {
+    expect(() => fieldData.createNumberField('40', 99999999999.99))
+      .toThrow(/EDC_INVALID_FIELD_DATA/);
+  });
 });
 
 describe('Presentation Header', () => {
