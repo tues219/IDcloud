@@ -54,6 +54,7 @@ class EdcInterface extends EventEmitter {
       switch (txCode) {
         case '20':
         case 'QR':
+          this._warnIfTruncated({ ref1: data.ref1, ref2: data.ref2 }, 20);
           msg = messageBuilder.buildPaymentMessage(
             txCode,
             parseFloat(data.amount) || 0,
@@ -125,6 +126,18 @@ class EdcInterface extends EventEmitter {
       }
       this.status = 'ready';
       this.emit('status', { status: 'ready' });
+    }
+  }
+
+  _warnIfTruncated(fields, maxLength) {
+    for (const [name, value] of Object.entries(fields)) {
+      const text = String(value == null ? '' : value);
+      if (text.length > maxLength) {
+        this.logger.warn(`${name} exceeds ${maxLength} characters, truncating`, {
+          original: text,
+          sent: text.slice(0, maxLength),
+        });
+      }
     }
   }
 
