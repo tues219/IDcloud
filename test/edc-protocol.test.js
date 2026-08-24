@@ -101,28 +101,34 @@ describe('Field Data', () => {
     expect(hex).toContain('1C');
   });
 
-  it('emits exactly the declared number of data bytes', () => {
-    // type (2) + length (2) + data (20) + FS (1) = 25 bytes = 50 hex chars
-    expect(fieldData.createStringField('A1', 'REC00001').length).toBe(50);
-    expect(fieldData.createStringField('A1', '').length).toBe(50);
+  it('emits exactly the declared number of data bytes for fixed fields', () => {
+    // type (2) + length (2) + data (9) + FS (1) = 14 bytes = 28 hex chars
+    expect(fieldData.createStringField('01', 'SO1IAY').length).toBe(28);
+    expect(fieldData.createStringField('01', '').length).toBe(28);
   });
 
-  it('truncates over-length data to the declared field length', () => {
+  it('truncates over-length data to the max field length', () => {
     const hex = fieldData.createStringField('A1', 'A'.repeat(25));
-    expect(hex.length).toBe(50);
     const data = protocol.hexStringToString(hex.slice(8, -2));
     expect(data).toBe('A'.repeat(20));
   });
 
-  it('left-aligns reference fields (A1/A2) with trailing spaces', () => {
-    const data = protocol.hexStringToString(
-      fieldData.createStringField('A1', 'REC00001').slice(8, -2)
-    );
-    expect(data).toBe('REC00001'.padEnd(20, ' '));
-    expect(data.startsWith(' ')).toBe(false);
+  it('sends reference fields (A1/A2) with no padding, declaring actual length', () => {
+    const hex = fieldData.createStringField('A1', 'REC00001');
+    // type(4) + length(4) + data(16) + FS(2) = 26 hex chars, length declares 0008
+    expect(hex.slice(4, 8)).toBe('0008');
+    const data = protocol.hexStringToString(hex.slice(8, -2));
+    expect(data).toBe('REC00001');
   });
 
-  it('keeps other string fields left-padded (leading spaces)', () => {
+  it('sends an empty reference field as length 0000 with no data', () => {
+    const hex = fieldData.createStringField('A1', '');
+    expect(hex.slice(4, 8)).toBe('0000');
+    // type(4) + length(4) + FS(2), no data
+    expect(hex).toBe(protocol.stringToHexString('A1') + '0000' + '1C');
+  });
+
+  it('keeps other fixed-width string fields left-padded (leading spaces)', () => {
     const data = protocol.hexStringToString(
       fieldData.createStringField('01', 'SO1IAY').slice(8, -2)
     );

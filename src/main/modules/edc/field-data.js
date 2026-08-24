@@ -2,12 +2,12 @@ const protocol = require('./protocol');
 
 // Field type definitions with max lengths
 const FIELD_TYPES = {
-  // Reference fields are left-aligned (trailing spaces): the bank app treats
-  // leading spaces as part of the reference value and rejects it, but trims
-  // trailing whitespace. Other string fields keep the default left-pad to
-  // match the proven .NET behavior for cancel/reprint matching.
-  A1: { type: 'A1', length: 20, dataType: 'string', pad: 'end' },  // Reference 1
-  A2: { type: 'A2', length: 20, dataType: 'string', pad: 'end' },  // Reference 2
+  // Reference fields are sent variable-length with no padding at all: the bank
+  // app rejects a reference that carries spaces. The field declares its actual
+  // byte length (0000 when empty). Other string fields stay fixed-width and
+  // left-padded to match the proven .NET behavior for cancel/reprint matching.
+  A1: { type: 'A1', length: 20, dataType: 'string', variable: true },  // Reference 1
+  A2: { type: 'A2', length: 20, dataType: 'string', variable: true },  // Reference 2
   A3_STR: { type: 'A3', length: 20, dataType: 'string' },  // Reference 3 (string)
   A3_NUM: { type: 'A3', length: 12, dataType: 'number' },  // VAT Refund (number)
   '30': { type: '30', length: 19, dataType: 'string' },  // Card No
@@ -57,12 +57,18 @@ function createStringField(fieldTypeKey, data) {
     const name = FIELD_NAMES[def.type] || def.type;
     throw new Error(`EDC_INVALID_FIELD_DATA: ${name} (${def.type}) must be printable ASCII only`);
   }
-  // The field header always declares def.length, so the data must be exactly
-  // that long — an over-length value would make the declared length a lie.
+  // def.length is the maximum; anything longer would make the declared length
+  // a lie about the trailing bytes, so cap it.
   const trimmed = text.slice(0, def.length);
-  const paddedData = def.pad === 'end'
-    ? trimmed.padEnd(def.length, ' ')
-    : protocol.formatStringToDigitString(trimmed, def.length);
+  if (def.variable) {
+    // Reference fields send no padding at all: declare the actual byte length
+    // (0000 when empty) and send exactly that. The bank app rejects a
+    // reference that carries spaces, so we send only the real characters.
+    return createFieldDataHex(def.type, trimmed.length, trimmed);
+  }
+  // Other fields are fixed width: the header always declares def.length, so
+  // the data must be exactly that long. Left-pad to match the .NET behavior.
+  const paddedData = protocol.formatStringToDigitString(trimmed, def.length);
   return createFieldDataHex(def.type, def.length, paddedData);
 }
 
